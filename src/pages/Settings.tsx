@@ -1,12 +1,14 @@
 import { useState } from 'react'
-import { Save, Trash2, AlertTriangle, KeyRound, CheckCircle } from 'lucide-react'
+import { Save, Trash2, AlertTriangle, KeyRound, CheckCircle, Cloud } from 'lucide-react'
 import { useFinance } from '../context/FinanceContext'
 import { useAuth } from '../context/AuthContext'
+import { supabase } from '../lib/supabase'
 
 export default function Settings() {
   const { state, updateSettings } = useFinance()
-  const { changeCredentials, username, mode } = useAuth()
+  const { changePassword, email, mode, user } = useAuth()
   const isCouple = mode === 'couple'
+  const userId = user?.id ?? null
 
   const [names, setNames] = useState({
     person1Name: state.settings.person1Name,
@@ -14,9 +16,12 @@ export default function Settings() {
   })
   const [namesSaved, setNamesSaved] = useState(false)
 
-  const [creds, setCreds] = useState({ currentPassword: '', newUsername: username, newPassword: '', confirmPassword: '' })
-  const [credsError, setCredsError] = useState('')
-  const [credsSaved, setCredsSaved] = useState(false)
+  const [pwForm, setPwForm] = useState({ newPassword: '', confirmPassword: '' })
+  const [pwError, setPwError] = useState('')
+  const [pwSaved, setPwSaved] = useState(false)
+  const [pwLoading, setPwLoading] = useState(false)
+
+  const [clearLoading, setClearLoading] = useState(false)
 
   const handleSaveNames = () => {
     updateSettings(names)
@@ -24,30 +29,41 @@ export default function Settings() {
     setTimeout(() => setNamesSaved(false), 2000)
   }
 
-  const handleSaveCreds = () => {
-    setCredsError('')
-    if (!creds.currentPassword) { setCredsError('Informe a senha atual.'); return }
-    if (!creds.newUsername.trim()) { setCredsError('O usuário não pode ser vazio.'); return }
-    if (!creds.newPassword) { setCredsError('A nova senha não pode ser vazia.'); return }
-    if (creds.newPassword !== creds.confirmPassword) { setCredsError('As senhas não coincidem.'); return }
+  const handleSavePassword = async () => {
+    setPwError('')
+    if (!pwForm.newPassword) { setPwError('A nova senha não pode ser vazia.'); return }
+    if (pwForm.newPassword.length < 6) { setPwError('A senha deve ter pelo menos 6 caracteres.'); return }
+    if (pwForm.newPassword !== pwForm.confirmPassword) { setPwError('As senhas não coincidem.'); return }
 
-    const ok = changeCredentials(creds.currentPassword, creds.newUsername.trim(), creds.newPassword)
-    if (!ok) {
-      setCredsError('Senha atual incorreta.')
+    setPwLoading(true)
+    const err = await changePassword(pwForm.newPassword)
+    setPwLoading(false)
+    if (err) {
+      setPwError(err)
       return
     }
-    setCredsSaved(true)
-    setCreds({ currentPassword: '', newUsername: creds.newUsername, newPassword: '', confirmPassword: '' })
-    setTimeout(() => setCredsSaved(false), 2000)
+    setPwSaved(true)
+    setPwForm({ newPassword: '', confirmPassword: '' })
+    setTimeout(() => setPwSaved(false), 2000)
   }
 
-  const handleClearData = () => {
-    if (confirm('Tem certeza? Todos os dados serão apagados permanentemente.')) {
-      if (confirm('Confirmação final: apagar TODOS os dados?')) {
-        localStorage.removeItem('finance-casal-v1')
-        window.location.reload()
-      }
-    }
+  const handleClearData = async () => {
+    if (!confirm('Tem certeza? Todos os dados serão apagados permanentemente.')) return
+    if (!confirm('Confirmação final: apagar TODOS os dados?')) return
+    if (!userId) return
+
+    setClearLoading(true)
+    await Promise.all([
+      supabase.from('expenses').delete().eq('user_id', userId),
+      supabase.from('incomes').delete().eq('user_id', userId),
+      supabase.from('monthly_expenses').delete().eq('user_id', userId),
+      supabase.from('monthly_incomes').delete().eq('user_id', userId),
+      supabase.from('variable_entries').delete().eq('user_id', userId),
+      supabase.from('extra_incomes').delete().eq('user_id', userId),
+      supabase.from('daily_expenses').delete().eq('user_id', userId),
+      supabase.from('settings').delete().eq('user_id', userId),
+    ])
+    window.location.reload()
   }
 
   return (
@@ -88,77 +104,62 @@ export default function Settings() {
         </button>
       </div>
 
-      {/* Login credentials */}
+      {/* Change password */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-4">
         <div className="flex items-center gap-2">
           <KeyRound size={18} className="text-indigo-600" />
-          <h3 className="font-semibold text-gray-700">Alterar credenciais de acesso</h3>
+          <h3 className="font-semibold text-gray-700">Alterar senha</h3>
         </div>
-        <p className="text-xs text-gray-500">Usuário atual: <span className="font-medium text-gray-700">{username}</span></p>
+        <p className="text-xs text-gray-500">Conta: <span className="font-medium text-gray-700">{email}</span></p>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Senha atual *</label>
-          <input
-            type="password"
-            value={creds.currentPassword}
-            onChange={e => setCreds(c => ({ ...c, currentPassword: e.target.value }))}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            placeholder="Senha atual"
-          />
-        </div>
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Novo usuário *</label>
-          <input
-            type="text"
-            value={creds.newUsername}
-            onChange={e => setCreds(c => ({ ...c, newUsername: e.target.value }))}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-        </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Nova senha *</label>
             <input
               type="password"
-              value={creds.newPassword}
-              onChange={e => setCreds(c => ({ ...c, newPassword: e.target.value }))}
+              value={pwForm.newPassword}
+              onChange={e => setPwForm(f => ({ ...f, newPassword: e.target.value }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="Nova senha"
+              placeholder="Mín. 6 caracteres"
             />
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Confirmar *</label>
             <input
               type="password"
-              value={creds.confirmPassword}
-              onChange={e => setCreds(c => ({ ...c, confirmPassword: e.target.value }))}
+              value={pwForm.confirmPassword}
+              onChange={e => setPwForm(f => ({ ...f, confirmPassword: e.target.value }))}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
-              placeholder="Confirmar"
+              placeholder="Repita"
             />
           </div>
         </div>
 
-        {credsError && (
-          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{credsError}</p>
+        {pwError && (
+          <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{pwError}</p>
         )}
 
         <button
-          onClick={handleSaveCreds}
+          onClick={handleSavePassword}
+          disabled={pwLoading}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-            credsSaved ? 'bg-green-600 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700'
+            pwSaved ? 'bg-green-600 text-white' : 'bg-indigo-600 text-white hover:bg-indigo-700 disabled:bg-indigo-400'
           }`}
         >
-          {credsSaved ? <CheckCircle size={16} /> : <KeyRound size={16} />}
-          {credsSaved ? 'Alterado com sucesso!' : 'Alterar credenciais'}
+          {pwSaved ? <CheckCircle size={16} /> : <KeyRound size={16} />}
+          {pwLoading ? 'Salvando...' : pwSaved ? 'Senha alterada!' : 'Alterar senha'}
         </button>
       </div>
 
-      {/* Info */}
+      {/* Storage info */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 space-y-2">
-        <h3 className="font-semibold text-gray-700">Armazenamento</h3>
+        <div className="flex items-center gap-2">
+          <Cloud size={18} className="text-indigo-600" />
+          <h3 className="font-semibold text-gray-700">Armazenamento em nuvem</h3>
+        </div>
         <p className="text-sm text-gray-500">
-          Todos os dados são armazenados localmente no seu navegador (localStorage).
-          Limpar o cache do navegador ou trocar de dispositivo resultará na perda dos dados.
+          Todos os dados são sincronizados em tempo real via Supabase.
+          {isCouple && ' Ambos os parceiros acessam os mesmos dados de qualquer dispositivo.'}
         </p>
         <p className="text-sm text-gray-500">
           Despesas cadastradas: <strong className="text-gray-700">{state.expenses.length}</strong><br />
@@ -174,14 +175,15 @@ export default function Settings() {
           <h3 className="font-semibold">Zona de perigo</h3>
         </div>
         <p className="text-sm text-red-600">
-          Apaga permanentemente todos os dados do sistema. Esta ação não pode ser desfeita.
+          Apaga permanentemente todos os dados da conta na nuvem. Esta ação não pode ser desfeita.
         </p>
         <button
           onClick={handleClearData}
-          className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 transition-colors"
+          disabled={clearLoading}
+          className="flex items-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg text-sm font-medium hover:bg-red-700 disabled:bg-red-400 transition-colors"
         >
           <Trash2 size={16} />
-          Apagar todos os dados
+          {clearLoading ? 'Apagando...' : 'Apagar todos os dados'}
         </button>
       </div>
     </div>

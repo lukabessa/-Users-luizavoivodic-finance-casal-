@@ -1,89 +1,81 @@
-import React, { createContext, useContext, useState, useCallback } from 'react'
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
+import type { User, Session } from '@supabase/supabase-js'
+import { supabase } from '../lib/supabase'
 
 export type Mode = 'couple' | 'solo'
 
-interface Credentials { username: string; password: string }
-
 interface AuthContextValue {
+  user: User | null
+  session: Session | null
   isAuthenticated: boolean
   mode: Mode | null
-  login: (username: string, password: string, mode: Mode) => boolean
-  logout: () => void
-  changeCredentials: (currentPass: string, newUsername: string, newPassword: string) => boolean
-  username: string
-}
-
-const DEFAULTS: Record<Mode, Credentials> = {
-  couple: { username: 'casal', password: '1234' },
-  solo:   { username: 'eu',    password: '1234' },
-}
-
-function credsKey(mode: Mode) { return `finance-${mode}-creds` }
-function sessionKey(mode: Mode) { return `finance-${mode}-session` }
-const SESSION_MODE_KEY = 'finance-active-mode'
-
-function getStoredCreds(mode: Mode): Credentials {
-  try {
-    const raw = localStorage.getItem(credsKey(mode))
-    if (raw) return JSON.parse(raw)
-  } catch {}
-  return DEFAULTS[mode]
+  loading: boolean
+  email: string
+  login: (email: string, password: string) => Promise<string | null>
+  signup: (email: string, password: string, mode: Mode) => Promise<string | null>
+  logout: () => Promise<void>
+  changePassword: (newPassword: string) => Promise<string | null>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [mode, setMode] = useState<Mode | null>(() => {
-    const m = sessionStorage.getItem(SESSION_MODE_KEY) as Mode | null
-    return m === 'couple' || m === 'solo' ? m : null
-  })
-  const [isAuthenticated, setIsAuthenticated] = useState(() => {
-    const m = sessionStorage.getItem(SESSION_MODE_KEY) as Mode | null
-    if (!m) return false
-    return sessionStorage.getItem(sessionKey(m)) === 'true'
-  })
-  const [username, setUsername] = useState(() => {
-    const m = sessionStorage.getItem(SESSION_MODE_KEY) as Mode | null
-    return m ? (sessionStorage.getItem(`finance-${m}-user`) ?? '') : ''
-  })
+  const [user, setUser] = useState<User | null>(null)
+  const [session, setSession] = useState<Session | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  const login = useCallback((user: string, pass: string, m: Mode): boolean => {
-    const creds = getStoredCreds(m)
-    if (user === creds.username && pass === creds.password) {
-      sessionStorage.setItem(SESSION_MODE_KEY, m)
-      sessionStorage.setItem(sessionKey(m), 'true')
-      sessionStorage.setItem(`finance-${m}-user`, user)
-      setMode(m)
-      setIsAuthenticated(true)
-      setUsername(user)
-      return true
-    }
-    return false
+  useEffect(() => {
+    // Restore session on mount
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session)
+      setUser(data.session?.user ?? null)
+      setLoading(false)
+    })
+
+    // Listen for auth changes (login/logout from any tab)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession)
+      setUser(newSession?.user ?? null)
+    })
+
+    return () => subscription.unsubscribe()
   }, [])
 
-  const logout = useCallback(() => {
-    if (mode) {
-      sessionStorage.removeItem(sessionKey(mode))
-      sessionStorage.removeItem(`finance-${mode}-user`)
-    }
-    sessionStorage.removeItem(SESSION_MODE_KEY)
-    setIsAuthenticated(false)
-    setMode(null)
-    setUsername('')
-  }, [mode])
+  const login = useCallback(async (email: string, password: string): Promise<string | null> => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return error.message
+    return null
+  }, [])
 
-  const changeCredentials = useCallback((currentPass: string, newUsername: string, newPassword: string): boolean => {
-    if (!mode) return false
-    const creds = getStoredCreds(mode)
-    if (currentPass !== creds.password) return false
-    localStorage.setItem(credsKey(mode), JSON.stringify({ username: newUsername, password: newPassword }))
-    sessionStorage.setItem(`finance-${mode}-user`, newUsername)
-    setUsername(newUsername)
-    return true
-  }, [mode])
+  const signup = useCallback(async (email: string, password: string, mode: Mode): Promise<string | null> => {
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { data: { mode } },
+    })
+    if (error) return error.message
+    return null
+  }, [])
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut()
+  }, [])
+
+  const changePassword = useCallback(async (newPassword: string): Promise<string | null> => {
+    const { error } = await supabase.auth.updateUser({ password: newPassword })
+    if (error) return error.message
+    return null
+  }, [])
+
+  const mode = (user?.user_metadata?.mode as Mode) ?? null
+  const email = user?.email ?? ''
+  const isAuthenticated = !!user
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, mode, login, logout, changeCredentials, username }}>
+    <AuthContext.Provider value={{
+      user, session, isAuthenticated, mode, loading, email,
+      login, signup, logout, changePassword,
+    }}>
       {children}
     </AuthContext.Provider>
   )

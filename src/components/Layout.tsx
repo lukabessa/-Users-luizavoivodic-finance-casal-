@@ -35,7 +35,7 @@ const navItems = [
 
 export default function Layout({ children }: { children: React.ReactNode }) {
   const { state } = useFinance()
-  const { logout, username, mode } = useAuth()
+  const { logout, email, mode } = useAuth()
   const isCouple = mode === 'couple'
   const [open, setOpen] = useState(false)
 
@@ -92,7 +92,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <div className="px-2 py-3 border-t border-indigo-800">
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg">
           <UserCircle size={17} className="text-indigo-300 shrink-0" />
-          <span className="text-indigo-200 text-sm flex-1 truncate">{username}</span>
+          <span className="text-indigo-200 text-sm flex-1 truncate">{email}</span>
           <button
             onClick={logout}
             title="Sair"

@@ -14,14 +14,23 @@ import History from './pages/History'
 import Settings from './pages/Settings'
 
 function AppRoutes() {
-  const { isAuthenticated, mode } = useAuth()
+  const { isAuthenticated, mode, loading } = useAuth()
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-indigo-950 flex items-center justify-center">
+        <svg className="animate-spin h-10 w-10 text-indigo-400" viewBox="0 0 24 24" fill="none">
+          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+        </svg>
+      </div>
+    )
+  }
 
   if (!isAuthenticated || !mode) return <Login />
 
-  const storageKey = mode === 'couple' ? 'finance-casal-v1' : 'finance-solo-v1'
-
   return (
-    <FinanceProvider storageKey={storageKey}>
+    <FinanceProvider>
       <Layout>
         <Routes>
           <Route path="/" element={<Dashboard />} />
